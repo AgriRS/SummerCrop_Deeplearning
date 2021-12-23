@@ -1,0 +1,188 @@
+﻿var CODE = 1; 
+var roi_boundary = roi_boundary.filter(ee.Filter.eq("Name", CODE));
+
+//Sentinel去云
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+  return image.updateMask(mask).divide(10000);
+}
+
+var visParam = {bands:['B8A','B4','B3'],
+                //min: [0.15, 0.15, 0.25],
+                //max: [1, 0.9, 0.9],
+                gamma: 3};
+
+//S2A Crops classification used Images in Summer or Winter
+var Crop_S2ACollection = S2A2A
+                  .filterDate('2020-03-01', '2020-04-30')
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 10))
+                  .map(maskS2clouds).filterBounds(roi_boundary);
+print(Crop_S2ACollection);                 
+Crop_S2ACollection = Crop_S2ACollection.filter(ee.Filter.eq('system:index','20200417T030539_20200417T030544_T50SKE')).first();
+
+Map.addLayer(Crop_S2ACollection, visParam, "20200417T030544_T50SKE");
+Map.addLayer(roi_boundary)
+
+//在原影像中Calu NDWI NDBI
+var ndbi = Crop_S2ACollection.normalizedDifference(['B11', 'B8']).rename('NDBI');
+var ibiB = Crop_S2ACollection.expression('(NIR / (NIR + RED)) + (GREEN / (GREEN + SWIR1))', {
+              'NIR'  : Crop_S2ACollection.select('B8'),
+              'RED'  : Crop_S2ACollection.select('B4'),
+              'GREEN': Crop_S2ACollection.select('B3'),
+              'SWIR1': Crop_S2ACollection.select('B11')
+            }).rename(['IBIB']);
+var ibiA = Crop_S2ACollection.expression('2 * SWIR1 / (SWIR1 + NIR)', {
+            'SWIR1': Crop_S2ACollection.select('B11'),
+            'NIR'  : Crop_S2ACollection.select('B8')
+          }).rename(['IBIA']);
+var ndwi8 = Crop_S2ACollection.normalizedDifference(['B3', 'B8']).rename('NDWI8'); //more correct than ndwi5
+var ndwi5 = Crop_S2ACollection.normalizedDifference(['B3', 'B5']).rename('NDWI5');
+var mndwi = Crop_S2ACollection.normalizedDifference(['B3', 'B11']).rename('MNDWI');
+
+// add Vegetable index without Red edge
+var ndvi = Crop_S2ACollection.normalizedDifference(['B8', 'B4']).rename('NDVI');
+var dvi = Crop_S2ACollection.expression(
+              'NIR - RED',{
+              NIR:Crop_S2ACollection.select('B8'),
+              RED:Crop_S2ACollection.select('B4'),
+            }).float().rename('DVI')
+            
+var evi = Crop_S2ACollection.expression(
+              '2.5*(NIR-RED)/(NIR+6*RED-7.5*BLUE+1)',{
+              NIR:Crop_S2ACollection.select('B8'),
+              RED:Crop_S2ACollection.select('B4'),
+              BLUE:Crop_S2ACollection.select('B2'),
+            }).float().rename('EVI')
+var rvi = Crop_S2ACollection.expression(
+              'NIR/RED',{
+              NIR:Crop_S2ACollection.select('B8'),
+              RED:Crop_S2ACollection.select('B4'),
+            }).float().rename('RVI')
+            
+var savi = Crop_S2ACollection.expression(
+              '(NIR - RED)*(1 + L)/(NIR + RED + L)',{
+              NIR:Crop_S2ACollection.select('B8'),
+              RED:Crop_S2ACollection.select('B4'),
+              L:0.5
+            }).float().rename('SAVI')
+
+var msavi = Crop_S2ACollection.expression(
+              '((2 * NIR + 1) - sqrt((2 * NIR +1) *(2 * NIR +1) + 8 *(NIR - RED)))/2',{
+              NIR:Crop_S2ACollection.select('B8'),
+              RED:Crop_S2ACollection.select('B4'),
+            }).float().rename('MSAVI')
+
+// add Vegetable index with Red edge
+var rndvi = Crop_S2ACollection.normalizedDifference(['B5', 'B4']).rename('RNDVI');
+var re8Andvi = Crop_S2ACollection.normalizedDifference(['B8A', 'B5']).rename('RE8ANDVI');
+var redndvi = Crop_S2ACollection.normalizedDifference(['B8', 'B5']).rename('REDNDVI');       
+var tvi = Crop_S2ACollection.expression(
+              '0.5 * ((120 * (REDGE1 - GREEN)) - (200 * (RED - GREEN)))',{
+              REDGE1:Crop_S2ACollection.select('B5'),
+              RED:Crop_S2ACollection.select('B4'),
+              GREEN:Crop_S2ACollection.select('B3'),
+            }).float().rename('TVI')
+            
+var rri1 = Crop_S2ACollection.expression(
+              'NIR/REDGE1',{
+              REDGE1:Crop_S2ACollection.select('B5'),
+              NIR:Crop_S2ACollection.select('B8'),
+            }).float().rename('RRI1')
+
+var rri2 = Crop_S2ACollection.expression(
+              'REDGE1/RED',{
+              REDGE1:Crop_S2ACollection.select('B5'),
+              RED:Crop_S2ACollection.select('B4'),
+            }).float().rename('RRI2')
+            
+var msrre = Crop_S2ACollection.expression(
+              '(NIR/REDGE1 - 1)/(sqrt(NIR/REDGE1) + 1)',{
+              REDGE1:Crop_S2ACollection.select('B5'),
+              NIR:Crop_S2ACollection.select('B8'),
+            }).float().rename('MSRre')
+
+var cire = Crop_S2ACollection.expression(
+              'NIR/REDGE1 - 1',{
+              REDGE1:Crop_S2ACollection.select('B5'),
+              NIR:Crop_S2ACollection.select('B8'),
+            }).float().rename('CIre')
+var lswi = Crop_S2ACollection.normalizedDifference(['B8A', 'B11']).rename('LSWI');
+
+
+  
+print(ndvi);
+// Map.addLayer(cire);
+var Crop_S2ACollection_glcm = Crop_S2ACollection.select('B8A').multiply(10000).toUint16();
+var glcm = Crop_S2ACollection_glcm.glcmTexture();
+// var glcm_asm = glcm.select('B8A_asm').toFloat().multiply(100); //10-11
+var glcm_savg = glcm.select('B8A_savg').toFloat().divide(10000).rename('B8ASAVG'); //0-1
+var glcm_contrast = glcm.select('B8A_contrast').toFloat().divide(10000).rename('B8ACon'); //0-200
+var glcm_corr = glcm.select('B8A_corr').toFloat().rename('B8ACORR');  //-1-1
+var glcm_var = glcm.select('B8A_var').toFloat().divide(10000).rename('B8AVAR');//0-100
+var glcm_svar = glcm.select('B8A_svar').toFloat().divide(10000).rename('B8ASVAR');//0-200
+var glcm_dvar = glcm.select('B8A_dvar').toFloat().divide(10000).rename('B8ADVAR');//0-50
+var glcm_diss = glcm.select('B8A_diss').toFloat().divide(10000).rename('B8ADISS');//0-0.2
+print(glcm)
+// Map.addLayer(glcm_diss, {min: 0, max: 0.2, palette: ['0000CC', 'CC0000']},
+            // 'B8A_savg');
+            
+var spre_bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B11', 'B12'];
+var Crop_S2ACollection_m = Crop_S2ACollection.select(spre_bands).multiply(10000);
+Crop_S2ACollection_m = Crop_S2ACollection_m
+                                      .addBands(ndbi) //建筑植被指数                             1
+                                      .addBands(ibiA) //Add Index-Based Built-Up Index (IBI)     1
+                                      .addBands(ibiB) //Add Index-Based Built-Up Index (IBI)     1
+                                      .addBands(ndwi8) //水体指数  更好                          1
+                                      .addBands(ndwi5) //水体指数 
+                                      .addBands(mndwi) //改进的归一化差异水体指数                1
+                                      .addBands(ndvi)  //归一化差异植被指数                      2
+                                      .addBands(dvi)   //差值植被指数                            2
+                                      .addBands(rvi)   //比值植被指数                            2
+                                      .addBands(evi)   //增强植被指数                            2
+                                      .addBands(savi)  //土壤调整植被指数                        2
+                                      .addBands(msavi) //改进的土壤调整植被指数                  2
+                                      .addBands(rndvi)   //红边归一化植被指数                    3
+                                      .addBands(re8Andvi)   //红边归一化植被指数                 3
+                                      .addBands(redndvi)   //红边近红外归一化植被指数            3
+                                      .addBands(tvi)   //三角植被指数                            3
+                                      .addBands(rri1)  //红边比值植被指数 1                      3
+                                      .addBands(rri2)  //红边比值植被指数 2                      3
+                                      .addBands(msrre)  //改良红边土壤调整植被指数               3
+                                      .addBands(cire)   //红边叶绿素指数                         3
+                                      .addBands(lswi)   //地表水分指数                           3
+                                      .addBands(glcm_savg)   //求和平均值                        4
+                                      .addBands(glcm_contrast)   //局部对比度                    4
+                                      .addBands(glcm_corr)   //测量像素对之间的相关性            4
+                                      .addBands(glcm_var)   //方差                               4
+                                      .addBands(glcm_svar)   //和方差                            4
+                                      .addBands(glcm_dvar)   //差异方差                          4
+                                      .addBands(glcm_diss)   //差异性                            4
+                                      ;
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B11', 'B12', 
+'NDWI8', 'NDWI5','MNDWI' ,'IBIA', 'IBIB', 'NDBI', 'NDVI','DVI', 'RVI', 'EVI', 'SAVI', 'MSAVI', 
+'RNDVI', 'RE8ANDVI', 'REDNDVI', 'TVI', 'RRI1', 'RRI2', 'MSRre', 'CIre', 'LSWI',
+'B8ASAVG', 'B8ACon', 'B8ACORR', 'B8AVAR', 'B8ASVAR', 'B8ADVAR', 'B8ADISS'];
+
+
+var S2ACollection_multiBands = Crop_S2ACollection_m.select(bands).clip(roi_boundary);
+print(S2ACollection_multiBands);
+Map.addLayer(S2ACollection_multiBands)
+Export.image.toDrive({
+        image:  S2ACollection_multiBands,//结果
+        description: '20200417T030544_T50SKE_1',//文件名
+        folder: 'HN_NDVI',
+        fileFormat: "tif",
+        scale: 10,//分辨率
+        region: roi_boundary,//区域
+        //fileDimensions:1000,
+        maxPixels:1e13//此处值设置大一些，防止溢出
+      });
+
+
+
+
+
