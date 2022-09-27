@@ -1,2 +1,0 @@
-# SummerCrop_Deeplearning
-classification
